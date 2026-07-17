@@ -3,9 +3,13 @@
 
   "name": "plant-identification-online",
 
+  "main": "functions/api/identify.js",
+
   "compatibility_date": "2026-07-17",
 
-  "pages_build_output_dir": "./public",
+  "assets": {
+    "directory": "./public"
+  },
 
   "observability": {
     "enabled": true
