@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
 
-  "name": "plant-identification-online",
+  "name": "plant-identification-online-cf",
 
   "main": "functions/api/identify.js",
 
