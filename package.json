@@ -1,0 +1,14 @@
+{
+  "name": "plant-identification-online",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Plant Identification Online powered by Cloudflare Workers",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
