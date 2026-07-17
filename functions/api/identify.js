@@ -1,198 +1,354 @@
-export async function onRequestPost(context) {
+export default {
 
-    const { request, env } = context;
+    async fetch(request, env) {
+
+        if (request.method !== "POST") {
+
+            return jsonResponse({
+
+                success: false,
+                message: "Only POST requests are allowed."
+
+            }, 405);
+
+        }
+
+        try {
+
+            const formData = await request.formData();
+
+            const image = formData.get("plantImage");
+
+            if (!image) {
+
+                return jsonResponse({
+
+                    success: false,
+                    message: "No image uploaded."
+
+                }, 400);
+
+            }
+
+            const apiKey = env.PLANTNET_API_KEY;
+
+            if (!apiKey) {
+
+                return jsonResponse({
+
+                    success: false,
+                    message: "PlantNet API key is missing."
+
+                }, 500);
+
+            }
+
+            const plantResult = await identifyPlant(
+
+                image,
+                apiKey
+
+            );
+
+            if (!plantResult) {
+
+                return jsonResponse({
+
+                    success: false,
+                    message: "Plant not found."
+
+                }, 404);
+
+            }
+
+            const wikiName =
+
+                plantResult.common_name !== "No common name found"
+
+                ? plantResult.common_name
+
+                : plantResult.scientific_name;
+
+            const wikiData = await getWikipediaInformation(
+
+                wikiName
+
+            );
+
+            return jsonResponse({
+
+                success: true,
+
+                common_name: plantResult.common_name,
+
+                scientific_name: plantResult.scientific_name,
+
+                family_name: plantResult.family_name,
+
+                confidence: plantResult.confidence,
+
+                wiki_summary: wikiData.summary,
+
+                history: wikiData.history,
+
+                benefits: wikiData.benefits
+
+            });
+
+        }
+
+        catch (error) {
+
+            console.error(error);
+
+            return jsonResponse({
+
+                success: false,
+
+                message: error.message
+
+            }, 500);
+
+        }
+
+    }
+
+};
+
+
+
+/* ==========================================
+   Helper Functions
+========================================== */
+
+function jsonResponse(data, status = 200) {
+
+    return new Response(
+
+        JSON.stringify(data),
+
+        {
+
+            status,
+
+            headers: {
+
+                "Content-Type": "application/json"
+
+            }
+
+        }
+
+    );
+
+}
+
+/* ==========================================
+   PlantNet API
+========================================== */
+
+async function identifyPlant(image, apiKey) {
+
+    const form = new FormData();
+
+    form.append(
+        "images",
+        image,
+        image.name
+    );
+
+    form.append(
+        "organs",
+        "auto"
+    );
+
+    const response = await fetch(
+
+        `https://my-api.plantnet.org/v2/identify/all?api-key=${apiKey}`,
+
+        {
+
+            method: "POST",
+
+            body: form
+
+        }
+
+    );
+
+    if (!response.ok) {
+
+        return null;
+
+    }
+
+    const data = await response.json();
+
+    if (
+
+        !data.results ||
+
+        data.results.length === 0
+
+    ) {
+
+        return null;
+
+    }
+
+    const best = data.results[0];
+
+    const confidence = Number(
+
+        (best.score * 100).toFixed(2)
+
+    );
+
+    let commonName = "No common name found";
+
+    if (
+
+        best.species.commonNames &&
+
+        best.species.commonNames.length > 0
+
+    ) {
+
+        commonName = best.species.commonNames[0];
+
+    }
+
+    return {
+
+        common_name: commonName,
+
+        scientific_name:
+            best.species.scientificNameWithoutAuthor,
+
+        family_name:
+            best.species.family.scientificNameWithoutAuthor,
+
+        confidence
+
+    };
+
+}
+
+/* ==========================================
+   Wikipedia Engine
+========================================== */
+
+async function getWikipediaInformation(plantName) {
+
+    let summary =
+        "Information will be added in a future update.";
+
+    let history =
+        "Information will be added in a future update.";
+
+    let benefits =
+        "Information will be added in a future update.";
 
     try {
 
-        // Read submitted form
-        const formData = await request.formData();
+        // ==========================
+        // Wikipedia Summary
+        // ==========================
 
-        const image = formData.get("plantImage");
+        const summaryResponse = await fetch(
 
-        if (!image) {
+            `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(plantName)}`,
 
-            return Response.json({
-                success: false,
-                message: "No image uploaded."
-            }, {
-                status: 400
-            });
-
-        }
-
-        // Read PlantNet API Key
-        const apiKey = env.PLANTNET_API_KEY;
-
-        if (!apiKey) {
-
-            return Response.json({
-                success: false,
-                message: "PlantNet API key not configured."
-            }, {
-                status: 500
-            });
-
-        }
-
-        // Prepare request for PlantNet
-        const plantNetForm = new FormData();
-
-        plantNetForm.append(
-            "images",
-            image,
-            image.name
-        );
-
-        plantNetForm.append(
-            "organs",
-            "auto"
-        );
-
-        const plantNetURL =
-            `https://my-api.plantnet.org/v2/identify/all?api-key=${apiKey}`;
-
-        const plantResponse = await fetch(
-            plantNetURL,
             {
-                method: "POST",
-                body: plantNetForm
+
+                headers: {
+
+                    "User-Agent":
+                        "PlantIdentificationOnline/1.0"
+
+                }
+
             }
+
         );
 
-        if (!plantResponse.ok) {
+        if (summaryResponse.ok) {
 
-            return Response.json({
-                success: false,
-                message: "PlantNet request failed."
-            }, {
-                status: 500
-            });
+            const summaryData =
+                await summaryResponse.json();
 
-        }
-
-        const plantResult = await plantResponse.json();
-
-         if (
-            !plantResult.results ||
-            plantResult.results.length === 0
-        ) {
-
-            return Response.json({
-                success: false,
-                message: "Plant not found."
-            });
+            summary =
+                summaryData.extract || summary;
 
         }
 
-        const best = plantResult.results[0];
+        // ==========================
+        // Complete Wikipedia Article
+        // ==========================
 
-        const confidence =
-            Number((best.score * 100).toFixed(2));
+        const articleResponse = await fetch(
 
-        const scientificName =
-            best.species.scientificNameWithoutAuthor;
+            `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&format=json&titles=${encodeURIComponent(plantName)}`,
 
-        const family =
-            best.species.family.scientificNameWithoutAuthor;
+            {
 
-        let commonName = "No common name found";
+                headers: {
 
-        if (
-            best.species.commonNames &&
-            best.species.commonNames.length > 0
-        ) {
+                    "User-Agent":
+                        "PlantIdentificationOnline/1.0"
 
-            commonName = best.species.commonNames[0];
-
-        }
-
-        // We will use this name for Wikipedia
-        const wikiPlantName =
-            commonName !== "No common name found"
-                ? commonName
-                : scientificName; 
-
-                // ============================
-        // Wikipedia Description
-        // ============================
-
-        let wikiSummary = "Information will be added in a future update.";
-
-        try {
-
-            const wikiURL =
-                `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(wikiPlantName)}`;
-
-            const wikiResponse = await fetch(
-                wikiURL,
-                {
-                    headers: {
-                        "User-Agent": "PlantIdentificationOnline/1.0"
-                    }
                 }
-            );
-
-            if (wikiResponse.ok) {
-
-                const wikiData = await wikiResponse.json();
-
-                wikiSummary =
-                    wikiData.extract ||
-                    "Information will be added in a future update.";
 
             }
 
-        } catch (error) {
+        );
 
-            wikiSummary =
-                "Information will be added in a future update.";
+        if (!articleResponse.ok) {
+
+            return {
+
+                summary,
+                history,
+                benefits
+
+            };
 
         }
 
-        // Get complete Wikipedia article
-        let wikiText = "";
+        const articleData =
+            await articleResponse.json();
 
-        try {
+        const page =
+            Object.values(
+                articleData.query.pages
+            )[0];
 
-            const extractURL =
-                `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&format=json&titles=${encodeURIComponent(wikiPlantName)}`;
+        const article =
+            page.extract || "";
 
-            const extractResponse = await fetch(
-                extractURL,
-                {
-                    headers: {
-                        "User-Agent": "PlantIdentificationOnline/1.0"
-                    }
-                }
-            );
+        if (!article) {
 
-            if (extractResponse.ok) {
+            return {
 
-                const extractData = await extractResponse.json();
+                summary,
+                history,
+                benefits
 
-                const pages = extractData.query.pages;
+            };
 
-                const page = Object.values(pages)[0];
+        }
 
-                wikiText = page.extract || "";
+        const sentences =
+            article.split(".");
+                    // ==========================
+        // Extract History
+        // ==========================
 
-            }
+        history = extractSentences(
 
-        } catch (error) {
+            sentences,
 
-            wikiText = "";
-
-        }        // ============================
-        // History & Region
-        // ============================
-
-        let history = "Information will be added in a future update.";
-
-        if (wikiText.length > 0) {
-
-            const sentences = wikiText.split(".");
-
-            const keywords = [
+            [
 
                 "first described",
                 "history",
@@ -222,58 +378,21 @@ export async function onRequestPost(context) {
                 "asia",
                 "rare"
 
-            ];
+            ],
 
-            const results = [];
+            history
 
-            for (const sentence of sentences) {
+        );
 
-                for (const keyword of keywords) {
+        // ==========================
+        // Extract Benefits
+        // ==========================
 
-                    if (
-                        sentence.toLowerCase().includes(
-                            keyword.toLowerCase()
-                        )
-                    ) {
+        benefits = extractSentences(
 
-                        const cleanSentence =
-                            sentence.trim() + ".";
+            sentences,
 
-                        if (
-                            cleanSentence.length > 5 &&
-                            !results.includes(cleanSentence)
-                        ) {
-
-                            results.push(cleanSentence);
-
-                        }
-
-                        break;
-
-                    }
-
-                }
-
-            }
-
-            if (results.length > 0) {
-
-                history =
-                    "• " + results.join("\n\n• ");
-
-            }
-
-        }        // ============================
-        // Benefits & Uses
-        // ============================
-
-        let benefits = "Information will be added in a future update.";
-
-        if (wikiText.length > 0) {
-
-            const sentences = wikiText.split(".");
-
-            const keywords = [
+            [
 
                 "medicinal",
                 "medicine",
@@ -293,90 +412,105 @@ export async function onRequestPost(context) {
                 "essential oil",
                 "health benefits"
 
-            ];
+            ],
 
-            const results = [];
+            benefits
 
-            for (const sentence of sentences) {
-
-                for (const keyword of keywords) {
-
-                    if (
-                        sentence.toLowerCase().includes(
-                            keyword.toLowerCase()
-                        )
-                    ) {
-
-                        const cleanSentence =
-                            sentence.trim() + ".";
-
-                        if (
-                            cleanSentence.length > 5 &&
-                            !results.includes(cleanSentence)
-                        ) {
-
-                            results.push(cleanSentence);
-
-                        }
-
-                        break;
-
-                    }
-
-                }
-
-            }
-
-            if (results.length > 0) {
-
-                benefits =
-                    "• " + results.join("\n\n• ");
-
-            }
-
-        }        // ============================
-        // Return JSON Response
-        // ============================
-
-        return Response.json({
-
-            success: true,
-
-            common_name: commonName,
-
-            scientific_name: scientificName,
-
-            family_name: family,
-
-            confidence: confidence,
-
-            wiki_summary: wikiSummary,
-
-            history: history,
-
-            benefits: benefits
-
-        });
-
-    } catch (error) {
-
-        console.error(error);
-
-        return Response.json({
-
-            success: false,
-
-            message: "Internal Server Error",
-
-            error: error.message
-
-        }, {
-
-            status: 500
-
-        });
+        );
 
     }
 
+    catch (error) {
+
+        console.error(error);
+
+    }
+
+    return {
+
+        summary,
+
+        history,
+
+        benefits
+
+    };
+
 }
-                
+
+
+
+/* ==========================================
+   Sentence Extraction Utility
+========================================== */
+
+function extractSentences(
+
+    sentences,
+
+    keywords,
+
+    fallback
+
+) {
+
+    const results = [];
+
+    for (const sentence of sentences) {
+
+        const text = sentence.trim();
+
+        if (!text) continue;
+
+        for (const keyword of keywords) {
+
+            if (
+
+                text
+
+                    .toLowerCase()
+
+                    .includes(
+
+                        keyword.toLowerCase()
+
+                    )
+
+            ) {
+
+                const clean = text + ".";
+
+                if (
+
+                    !results.includes(clean)
+
+                ) {
+
+                    results.push(clean);
+
+                }
+
+                break;
+
+            }
+
+        }
+
+    }
+
+    if (results.length === 0) {
+
+        return fallback;
+
+    }
+
+    return "• " + results.join("\n\n• ");
+
+}
+
+/* ==========================================
+   End of Worker
+========================================== */
+
+// No more code is required below this point.
+// All helper functions have been defined above.
